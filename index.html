@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="600"> <!-- rafraîchit toutes les 10 min -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Météo + Actus locales</title>
+  <style>
+    html, body {height:100%; margin:0; background:#2b1940; color:#fff; font-family:sans-serif;}
+    .container {display:flex; flex-direction:column; height:100%; padding:2vh 3vw;}
+    .meteo {flex:0 0 auto; text-align:center; margin-bottom:4vh;}
+    .meteo h1 {margin:0 0 10px; font-size:5vh;}
+    .big {font-size:12vh; margin:10px 0;}
+    .small {font-size:3vh; opacity:.9}
+    .actus {flex:1; overflow:hidden;}
+    .actus h2 {margin:0 0 2vh; font-size:4vh;}
+    ul {list-style:none; margin:0; padding:0;}
+    li {margin:1vh 0; padding:1.5vh 2vw; font-size:3vh; background:rgba(255,255,255,.1); border-radius:10px;}
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="meteo">
+    <h1 id="place">Météo locale</h1>
+    <div class="big" id="temp">--°</div>
+    <div class="small" id="desc">Chargement…</div>
+  </div>
+
+  <div class="actus">
+    <h2>Actus locales</h2>
+    <ul id="list"><li>Chargement…</li></ul>
+  </div>
+</div>
+
+<script>
+// ----- MÉTÉO -----
+const LAT = 43.23; // latitude
+const LON = -0.77; // longitude
+const LIEU = "Barcus (64)";
+const api = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code&timezone=auto`;
+const WMO = {0:"Clair",1:"Peu nuageux",2:"Partiellement nuageux",3:"Couvert",61:"Pluie",71:"Neige",95:"Orage"};
+fetch(api).then(r=>r.json()).then(data=>{
+  document.getElementById('place').textContent = LIEU;
+  document.getElementById('temp').textContent = Math.round(data.current.temperature_2m)+"°";
+  document.getElementById('desc').textContent = WMO[data.current.weather_code]||"—";
+});
+
+// ----- ACTUS -----
+const FEEDS = [
+  "https://news.google.com/rss/search?q=Oloron-Sainte-Marie&hl=fr&gl=FR&ceid=FR:fr",
+  "https://news.google.com/rss/search?q=Pays+Basque&hl=fr&gl=FR&ceid=FR:fr"
+];
+const MAX_ITEMS = 5;
+async function fetchRSS(url){
+  const res = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(url));
+  return res.text();
+}
+function parseRSS(xmlText){
+  const xml = new DOMParser().parseFromString(xmlText,"text/xml");
+  return [...xml.querySelectorAll("item")].map(i=>i.querySelector("title")?.textContent);
+}
+(async()=>{
+  let all=[];
+  for (const f of FEEDS){try{all=all.concat(parseRSS(await fetchRSS(f)));}catch(e){}}
+  const list=document.getElementById("list");list.innerHTML="";
+  all.slice(0,MAX_ITEMS).forEach(t=>{
+    const li=document.createElement("li");
+    li.textContent=t;
+    list.appendChild(li);
+  });
+})();
+</script>
+</body>
+</html>
