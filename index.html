@@ -34,9 +34,9 @@
 
 <script>
 // ----- MÉTÉO -----
-const LAT = 43.2219° N; // latitude
-const LON = -0.8753° O; // longitude
-const LIEU = "Mauleon (64)";
+const LAT = 43.23; // latitude
+const LON = -0.86; // longitude
+const LIEU = "Chéraute (64)";
 const api = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code&timezone=auto`;
 const WMO = {0:"Clair",1:"Peu nuageux",2:"Partiellement nuageux",3:"Couvert",61:"Pluie",71:"Neige",95:"Orage"};
 fetch(api).then(r=>r.json()).then(data=>{
