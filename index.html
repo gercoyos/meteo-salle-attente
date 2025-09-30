@@ -54,10 +54,25 @@ const FEEDS = [
 ];
 const MAX_ITEMS = 12;
 
+// Essaie plusieurs proxys (AllOrigins, isomorphic-git, ThingProxy)
+const PROXIES = [
+  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u) + "&t=" + Date.now(),
+  u => "https://cors.isomorphic-git.org/" + u,
+  u => "https://thingproxy.freeboard.io/fetch/" + u
+];
+
 async function fetchRSS(url){
-  const res = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(url));
-  return res.text();
+  let lastErr;
+  for (const wrap of PROXIES){
+    try {
+      const res = await fetch(wrap(url), { cache: "no-store" });
+      if (!res.ok) continue;
+      return await res.text();
+    } catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error("Proxys indisponibles");
 }
+
 function parseRSS(xmlText){
   const xml = new DOMParser().parseFromString(xmlText,"text/xml");
   return [...xml.querySelectorAll("item")].map(i=>i.querySelector("title")?.textContent);
