@@ -46,11 +46,14 @@ fetch(api).then(r=>r.json()).then(data=>{
 });
 
 // ----- ACTUS -----
+// ACTUS – Tu peux garder ceux-ci
 const FEEDS = [
-  "https://news.google.com/rss/search?q=Oloron-Sainte-Marie&hl=fr&gl=FR&ceid=FR:fr",
-  "https://news.google.com/rss/search?q=Pays+Basque&hl=fr&gl=FR&ceid=FR:fr"
+  "https://news.google.com/rss/search?q=Ch%C3%A9raute%20OR%20Maul%C3%A9on-Licharre%20OR%20Soule&hl=fr&gl=FR&ceid=FR:fr",
+  "https://news.google.com/rss/search?q=Pyr%C3%A9n%C3%A9es-Atlantiques&hl=fr&gl=FR&ceid=FR:fr",
+  "https://news.google.com/rss/search?q=Pays%20Basque&hl=fr&gl=FR&ceid=FR:fr"
 ];
-const MAX_ITEMS = 5;
+const MAX_ITEMS = 12;
+
 async function fetchRSS(url){
   const res = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(url));
   return res.text();
