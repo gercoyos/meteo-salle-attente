@@ -2,98 +2,139 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="refresh" content="600"> <!-- rafraîchit toutes les 10 min -->
+  <meta http-equiv="refresh" content="600"><!-- rafraîchit toutes les 10 min -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Météo + Actus locales</title>
   <style>
-    html, body {height:100%; margin:0; background:#2b1940; color:#fff; font-family:sans-serif;}
-    .container {display:flex; flex-direction:column; height:100%; padding:2vh 3vw;}
-    .meteo {flex:0 0 auto; text-align:center; margin-bottom:4vh;}
-    .meteo h1 {margin:0 0 10px; font-size:5vh;}
-    .big {font-size:12vh; margin:10px 0;}
+    :root{
+      --rows:6;         /* mis à jour par JS selon nb de titres */
+      --cols:1;         /* 1 ou 2 colonnes pour les actus */
+      --scale:1;        /* facteur taille du texte actus */
+      --bg:#2b1940; --fg:#fff; --card:rgba(255,255,255,.10);
+    }
+    body.light{ --bg:#f6f7fb; --fg:#111; --card:rgba(0,0,0,.06); }
+    html, body {height:100%; margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,Segoe UI,Roboto,Ubuntu,sans-serif;}
+    .container {display:flex; flex-direction:column; height:100vh; padding:2vh 3vw;}
+
+    /* METEO */
+    .meteo {flex:0 0 auto; text-align:center; margin-bottom:2.4vh;}
+    .meteo h1 {margin:0 0 8px; font-size:6vw;}
+    .big {font-size:12vh; margin:8px 0;}
     .small {font-size:3vh; opacity:.9}
-    .actus {flex:1; overflow:hidden;}
-    .actus h2 {margin:0 0 2vh; font-size:4vh;}
-    ul {list-style:none; margin:0; padding:0;}
-    li {margin:1vh 0; padding:1.5vh 2vw; font-size:3vh; background:rgba(255,255,255,.1); border-radius:10px;}
+    .grid {display:grid; grid-template-columns:repeat(3,1fr); gap:1.2vw; margin-top:2.2vh}
+    .tile {background:var(--card); border-radius:14px; padding:1.8vh 1.4vw}
+    .tile h3 {margin:0 0 .8vh; font-size:2.6vh}
+    .tile p {margin:.2vh 0; font-size:2.2vh}
+
+    /* ACTUS */
+    .actus {flex:1; overflow:hidden; margin-top:1.4vh;}
+    .actus h2 {margin:0 0 1.0vh; font-size:4vh;}
+    ul.newslist {list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(var(--cols), minmax(0,1fr)); gap:1.0vh 1.4vw;}
+    ul.newslist > li{
+      margin:0; padding:calc(1.1vh - (var(--rows) - 6)*0.06vh) 1.6vw;
+      background:var(--card); border-radius:10px; line-height:1.25;
+      font-size: clamp(2vh, calc((70vh / var(--rows)) * 0.42 * var(--scale)), 3.2vh);
+    }
   </style>
 </head>
 <body>
 <div class="container">
   <div class="meteo">
-    <h1 id="place">Météo locale</h1>
+    <h1 id="place">Météo – Chéraute (64)</h1>
     <div class="big" id="temp">--°</div>
     <div class="small" id="desc">Chargement…</div>
+    <div class="grid" id="forecast"></div>
   </div>
 
   <div class="actus">
     <h2>Actus locales</h2>
-    <ul id="list"><li>Chargement…</li></ul>
+    <ul class="newslist" id="list"><li>Chargement…</li></ul>
   </div>
 </div>
 
 <script>
-// ----- MÉTÉO -----
-const LAT = 43.23; // latitude
-const LON = -0.86; // longitude
-const LIEU = "Chéraute (64)";
-const api = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code&timezone=auto`;
-const WMO = {0:"Clair",1:"Peu nuageux",2:"Partiellement nuageux",3:"Couvert",61:"Pluie",71:"Neige",95:"Orage"};
-fetch(api).then(r=>r.json()).then(data=>{
-  document.getElementById('place').textContent = LIEU;
-  document.getElementById('temp').textContent = Math.round(data.current.temperature_2m)+"°";
-  document.getElementById('desc').textContent = WMO[data.current.weather_code]||"—";
-});
+  // ---- paramètres URL ----
+  const p = new URLSearchParams(location.search);
+  const THEME = (p.get('theme')||'dark').toLowerCase();          // light | dark
+  const COLS  = Math.max(1, Math.min(2, parseInt(p.get('cols')||'1')));
+  const MAX_ITEMS = Math.max(3, Math.min(16, parseInt(p.get('items')||'12')));
+  const SCALE = Math.max(.8, Math.min(1.4, parseFloat(p.get('scale')||'1')));
 
-// ----- ACTUS -----
-// ACTUS – Tu peux garder ceux-ci
-const FEEDS = [
-  "https://news.google.com/rss/search?q=Ch%C3%A9raute%20OR%20Maul%C3%A9on-Licharre%20OR%20Soule&hl=fr&gl=FR&ceid=FR:fr",
-  "https://news.google.com/rss/search?q=Pyr%C3%A9n%C3%A9es-Atlantiques&hl=fr&gl=FR&ceid=FR:fr",
-  "https://news.google.com/rss/search?q=Pays%20Basque&hl=fr&gl=FR&ceid=FR:fr"
-];
-const MAX_ITEMS = 12;
+  // Météo: valeurs par défaut = Chéraute; params URL pour surcharger
+  const LAT  = parseFloat(p.get('lat')  ?? 43.23);
+  const LON  = parseFloat(p.get('lon')  ?? -0.86);
+  const LIEU = decodeURIComponent(p.get('lieu') || 'Ch%C3%A9raute%20(64)');
 
-// Essaie plusieurs proxys (AllOrigins, isomorphic-git, ThingProxy)
-const PROXIES = [
-  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u) + "&t=" + Date.now(),
-  u => "https://cors.isomorphic-git.org/" + u,
-  u => "https://thingproxy.freeboard.io/fetch/" + u
-];
+  if (THEME === 'light') document.body.classList.add('light');
+  document.documentElement.style.setProperty('--cols', COLS);
+  document.documentElement.style.setProperty('--scale', SCALE.toString());
 
-async function fetchRSS(url){
-  let lastErr;
-  for (const wrap of PROXIES){
-    try {
-      const res = await fetch(wrap(url), { cache: "no-store" });
-      if (!res.ok) continue;
-      return await res.text();
-    } catch(e){ lastErr = e; }
+  // ===== METEO =====
+  const api = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=3&timezone=auto`;
+  const WMO = {0:"Ciel clair",1:"Peu nuageux",2:"Partiellement nuageux",3:"Couvert",45:"Brouillard",48:"Brouillard givrant",
+    51:"Bruine légère",53:"Bruine",55:"Bruine forte",56:"Bruine verglaçante légère",57:"Bruine verglaçante forte",
+    61:"Pluie faible",63:"Pluie",65:"Pluie forte",66:"Pluie verglaçante faible",67:"Pluie verglaçante forte",
+    71:"Neige faible",73:"Neige",75:"Neige forte",77:"Grains de neige",
+    80:"Averses faibles",81:"Averses",82:"Averses fortes",85:"Averses neige faibles",86:"Averses neige fortes",
+    95:"Orage",96:"Orage avec grêle",99:"Orage violent avec grêle"
+  };
+  const fDate = d => d.toLocaleDateString('fr-FR',{weekday:'short', day:'2-digit', month:'2-digit'}).replace('.','');
+
+  fetch(api).then(r=>r.json()).then(data=>{
+    const c=data.current, d=data.daily, grid=document.getElementById('forecast');
+    document.getElementById('place').textContent = `Météo – ${LIEU}`;
+    document.getElementById('temp').textContent  = Math.round(c.temperature_2m) + "°";
+    document.getElementById('desc').textContent  = `${WMO[c.weather_code]||'—'} • Vent ${Math.round(c.wind_speed_10m)} km/h • Humidité ${c.relative_humidity_2m}%`;
+    grid.innerHTML='';
+    for(let i=0;i<Math.min(3,d.time.length);i++){
+      const el=document.createElement('div'); el.className='tile';
+      el.innerHTML = `<h3>${fDate(new Date(d.time[i]))}</h3>
+        <p>${WMO[d.weather_code[i]]||'—'}</p>
+        <p>Max ${Math.round(d.temperature_2m_max[i])}° • Min ${Math.round(d.temperature_2m_min[i])}°</p>
+        <p>Pluie ${Math.round(d.precipitation_sum[i]||0)} mm</p>`;
+      grid.appendChild(el);
+    }
+  }).catch(()=>{ document.getElementById('desc').textContent = "Erreur météo"; });
+
+  // ===== ACTUS =====
+  const FEEDS = [
+    "https://news.google.com/rss/search?q=Ch%C3%A9raute%20OR%20Maul%C3%A9on-Licharre%20OR%20Soule&hl=fr&gl=FR&ceid=FR:fr",
+    "https://news.google.com/rss/search?q=Pyr%C3%A9n%C3%A9es-Atlantiques&hl=fr&gl=FR&ceid=FR:fr",
+    "https://news.google.com/rss/search?q=Pays%20Basque&hl=fr&gl=FR&ceid=FR:fr"
+  ];
+
+  const PROXIES = [
+    u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u) + "&t=" + Date.now(),
+    u => "https://cors.isomorphic-git.org/" + u,
+    u => "https://thingproxy.freeboard.io/fetch/" + u
+  ];
+  async function fetchRSS(url){
+    let lastErr;
+    for (const wrap of PROXIES){
+      try{
+        const res = await fetch(wrap(url), {cache:"no-store"});
+        if (!res.ok) continue;
+        return await res.text();
+      }catch(e){ lastErr = e; }
+    }
+    throw lastErr || new Error("Proxys indisponibles");
   }
-  throw lastErr || new Error("Proxys indisponibles");
-}
-
-function parseRSS(xmlText){
-  const xml = new DOMParser().parseFromString(xmlText,"text/xml");
-  return [...xml.querySelectorAll("item")].map(i => ({
-    title: i.querySelector("title")?.textContent || ""
-  }));
-}
-
-(async()=>{
-  let all=[];
-  for (const f of FEEDS){ try { all = all.concat(parseRSS(await fetchRSS(f))); } catch(e){} }
-  const list = document.getElementById("list");
-  list.innerHTML = "";
-  const shown = all.map(x=>x.title).filter(Boolean).slice(0, MAX_ITEMS);
-  document.documentElement.style.setProperty('--rows', shown.length.toString());
-  if (shown.length === 0){
-    list.innerHTML = "<li>Aucun titre chargé pour l’instant</li>";
-  } else {
-    shown.forEach(t => { const li=document.createElement("li"); li.textContent=t; list.appendChild(li); });
+  function parseRSS(xmlText){
+    const xml = new DOMParser().parseFromString(xmlText,"text/xml");
+    return [...xml.querySelectorAll("item")].map(i=>i.querySelector("title")?.textContent || "");
   }
-})();
-
+  (async()=>{
+    let all=[];
+    for(const f of FEEDS){ try{ all=all.concat(parseRSS(await fetchRSS(f))); }catch(e){} }
+    const list=document.getElementById("list"); list.innerHTML="";
+    const shown = all.filter(Boolean).slice(0, MAX_ITEMS);
+    document.documentElement.style.setProperty('--rows', shown.length.toString());
+    if (shown.length===0){
+      list.innerHTML = "<li>Aucun titre chargé pour l’instant</li>";
+    } else {
+      shown.forEach(t=>{ const li=document.createElement("li"); li.textContent=t; list.appendChild(li); });
+    }
+  })();
 </script>
 </body>
 </html>
