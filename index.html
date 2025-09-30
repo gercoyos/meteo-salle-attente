@@ -75,18 +75,25 @@ async function fetchRSS(url){
 
 function parseRSS(xmlText){
   const xml = new DOMParser().parseFromString(xmlText,"text/xml");
-  return [...xml.querySelectorAll("item")].map(i=>i.querySelector("title")?.textContent);
+  return [...xml.querySelectorAll("item")].map(i => ({
+    title: i.querySelector("title")?.textContent || ""
+  }));
 }
+
 (async()=>{
   let all=[];
-  for (const f of FEEDS){try{all=all.concat(parseRSS(await fetchRSS(f)));}catch(e){}}
-  const list=document.getElementById("list");list.innerHTML="";
-  all.slice(0,MAX_ITEMS).forEach(t=>{
-    const li=document.createElement("li");
-    li.textContent=t;
-    list.appendChild(li);
-  });
+  for (const f of FEEDS){ try { all = all.concat(parseRSS(await fetchRSS(f))); } catch(e){} }
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  const shown = all.map(x=>x.title).filter(Boolean).slice(0, MAX_ITEMS);
+  document.documentElement.style.setProperty('--rows', shown.length.toString());
+  if (shown.length === 0){
+    list.innerHTML = "<li>Aucun titre chargé pour l’instant</li>";
+  } else {
+    shown.forEach(t => { const li=document.createElement("li"); li.textContent=t; list.appendChild(li); });
+  }
 })();
+
 </script>
 </body>
 </html>
