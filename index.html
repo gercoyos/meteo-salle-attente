@@ -124,31 +124,64 @@
     u => "https://cors.isomorphic-git.org/" + u,
     u => "https://thingproxy.freeboard.io/fetch/" + u
   ];
-  async function loadFete(){
-    const now = new Date();
-    const month = String(now.getMonth()+1).padStart(2,'0');
-    const day   = String(now.getDate()).padStart(2,'0');
-    const candidates = [
-      `https://api.abalin.net/today?country=fr`,
-      `https://api.abalin.net/namedays?country=fr&month=${month}&day=${day}`
-    ];
-    let names = null, lastErr = null;
-    for (const url of candidates){
-      for (const wrap of PROXIES){
-        try{
-          const r = await fetch(wrap(url), {cache:'no-store'});
-          if(!r.ok) continue;
-          const j = await r.json();
-          if (Array.isArray(j?.data) && j.data[0]?.namedays?.fr) { names = j.data[0].namedays.fr; break; }
-          if (j?.data?.namedays?.fr) { names = j.data.namedays.fr; break; }
-        }catch(e){ lastErr = e; }
-      }
-      if (names) break;
+async function loadFete(){
+  // Date (Europe/Paris)
+  const now = new Date();
+  const month = String(now.getMonth()+1).padStart(2,'0');
+  const day   = String(now.getDate()).padStart(2,'0');
+
+  // Proxys anti-CORS (on garde les tiens)
+  const PROXIES = [
+    u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u) + "&t=" + Date.now(),
+    u => "https://cors.isomorphic-git.org/" + u,
+    u => "https://thingproxy.freeboard.io/fetch/" + u
+  ];
+
+  // On essaie plusieurs endpoints / versions d’API
+  const ENDPOINTS = [
+    `https://nameday.abalin.net/api/V1/today?country=fr`,
+    `https://nameday.abalin.net/api/V1/getdate?country=fr&month=${month}&day=${day}`,
+    `https://api.abalin.net/today?country=fr`,
+    `https://api.abalin.net/namedays?country=fr&month=${month}&day=${day}`
+  ];
+
+  // Fonction pour extraire les prénoms selon le format reçu
+  const pickNames = (j) => {
+    // formats possibles rencontrés
+    if (Array.isArray(j?.data) && j.data[0]?.namedays?.fr) return j.data[0].namedays.fr;
+    if (j?.data?.namedays?.fr) return j.data.namedays.fr;
+    if (j?.data?.fr) return j.data.fr;
+    if (j?.nameday?.fr) return j.nameday.fr;
+    if (j?.fr) return j.fr;
+    return null;
+  };
+
+  let names = null, lastErr = null;
+
+  for (const url of ENDPOINTS){
+    for (const wrap of PROXIES){
+      try{
+        const res = await fetch(wrap(url), { cache: "no-store" });
+        if (!res.ok) continue;
+        const json = await res.json();
+        const n = pickNames(json);
+        if (n){
+          // nettoyage simple : espaces après virgules, dedup
+          names = n.split(/[,;/]/).map(s=>s.trim()).filter(Boolean);
+          names = [...new Set(names)].join(', ');
+          break;
+        }
+      }catch(e){ lastErr = e; }
     }
-    const el = document.getElementById('fete');
-    if (!el) return;
-    el.textContent = names ? `Fête du jour : ${names}` : `Fête du jour : (indisp.)`;
-    if (!names) console.warn('Fête du jour non chargée', lastErr);
+    if (names) break;
+  }
+
+  const el = document.getElementById('fete');
+  if (!el) return;
+  el.textContent = names ? `Fête du jour : ${names}` : `Fête du jour : (indisp.)`;
+  if (!names && lastErr) console.warn('Fête du jour non chargée', lastErr);
+}
+
   }
   loadFete();
   setInterval(loadFete, 6 * 60 * 60 * 1000); // toutes les 6 h
