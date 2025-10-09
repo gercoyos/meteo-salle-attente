@@ -20,7 +20,6 @@
     .big {font-size:12vh; margin:8px 0;}
     .small {font-size:3vh; opacity:.9}
     #clock { margin-top:0.6vh; }
-    #fete  { margin-top:0.4vh; }
     .grid {display:grid; grid-template-columns:repeat(3,1fr); gap:1.2vw; margin-top:2.2vh}
     .tile {background:var(--card); border-radius:14px; padding:1.8vh 1.4vw}
     .tile h3 {margin:0 0 .8vh; font-size:2.6vh}
@@ -35,8 +34,6 @@
       background:var(--card); border-radius:10px; line-height:1.25;
       font-size: clamp(2vh, calc((70vh / var(--rows)) * 0.42 * var(--scale)), 3.2vh);
     }
-    .credit{font-size:2vh; opacity:.6; margin-top:.6vh}
-    .credit a{color:inherit; text-decoration:underline; text-underline-offset:2px}
   </style>
 </head>
 <body>
@@ -45,10 +42,8 @@
     <h1 id="place">Météo – Chéraute (64)</h1>
     <div class="big" id="temp">--°</div>
     <div class="small" id="desc">Chargement…</div>
-    <!-- HORLOGE + FÊTE DU JOUR -->
+    <!-- HORLOGE -->
     <div class="small" id="clock">--:--</div>
-    <div class="small" id="fete">Fête du jour : …</div>
-    <div class="credit">Source fête : <a href="https://nominis.cef.fr/" target="_blank" rel="noopener">Nominis</a></div>
 
     <div class="grid" id="forecast"></div>
   </div>
@@ -74,7 +69,7 @@
   document.documentElement.style.setProperty('--cols', COLS);
   document.documentElement.style.setProperty('--scale', SCALE.toString());
 
-  /* ===== Proxys anti-CORS (partagés) ===== */
+  /* ===== Proxys anti-CORS (pour les actus) ===== */
   const PROXIES = [
     u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u) + "&t=" + Date.now(),
     u => "https://cors.isomorphic-git.org/" + u,
@@ -127,65 +122,6 @@
   }
   updateClock();
   setInterval(updateClock, 30 * 1000);
-
-  /* ===== Fête du jour (priorité Nominis, fallback Abalin) ===== */
-  async function loadFete(){
-    const now = new Date();
-    const m = String(now.getMonth()+1).padStart(2,'0');
-    const d = String(now.getDate()).padStart(2,'0');
-
-    const nominisURLs = [
-      `https://nominis.cef.fr/json/nominis.php?mois=${m}&jour=${d}`,
-      `https://nominis.cef.fr/json/saintdujour.php?mois=${m}&jour=${d}`
-    ];
-    const abalinURLs = [
-      `https://nameday.abalin.net/api/V1/getdate?country=fr&month=${m}&day=${d}`,
-      `https://api.abalin.net/namedays?country=fr&month=${m}&day=${d}`
-    ];
-
-    const pickFromNominis = (j) => {
-      if (Array.isArray(j?.data)) {
-        const names = j.data.map(x => x?.nom || x?.name || "").filter(Boolean);
-        if (names.length) return names.join(", ");
-      }
-      return j?.saint || j?.data?.saint || null;
-    };
-    const pickFromAbalin = (j) => {
-      if (Array.isArray(j?.data) && j.data[0]?.namedays?.fr) return j.data[0].namedays.fr;
-      if (j?.data?.namedays?.fr) return j.data.namedays.fr;
-      if (j?.data?.fr) return j.data.fr;
-      if (j?.nameday?.fr) return j.nameday.fr;
-      if (j?.fr) return j.fr;
-      return null;
-    };
-
-    async function tryList(urls, picker){
-      for (const url of urls){
-        for (const wrap of PROXIES){
-          try{
-            const res = await fetch(wrap(url), {cache:"no-store"});
-            if (!res.ok) continue;
-            const json = await res.json();
-            const raw = picker(json);
-            if (raw){
-              let arr = raw.split(/[,;/]|(?:\set\s)/i).map(s=>s.trim()).filter(Boolean);
-              arr = [...new Set(arr)];
-              return arr.join(", ");
-            }
-          }catch{} // on tente proxy suivant
-        }
-      }
-      return null;
-    }
-
-    let names = await tryList(nominisURLs, pickFromNominis);
-    if (!names) names = await tryList(abalinURLs, pickFromAbalin);
-
-    const el = document.getElementById('fete');
-    el.textContent = names ? `Fête du jour : ${names}` : `Fête du jour : (indisp.)`;
-  }
-  loadFete();
-  setInterval(loadFete, 6 * 60 * 60 * 1000); // 6 h
 
   /* ===== Actus locales (Google News RSS via proxys) ===== */
   const FEEDS = [
