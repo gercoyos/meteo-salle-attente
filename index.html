@@ -35,6 +35,8 @@
       background:var(--card); border-radius:10px; line-height:1.25;
       font-size: clamp(2vh, calc((70vh / var(--rows)) * 0.42 * var(--scale)), 3.2vh);
     }
+    .credit{font-size:2vh; opacity:.6; margin-top:.6vh}
+    .credit a{color:inherit; text-decoration:underline; text-underline-offset:2px}
   </style>
 </head>
 <body>
@@ -46,6 +48,7 @@
     <!-- HORLOGE + FÊTE DU JOUR -->
     <div class="small" id="clock">--:--</div>
     <div class="small" id="fete">Fête du jour : …</div>
+    <div class="credit">Source fête : <a href="https://nominis.cef.fr/" target="_blank" rel="noopener">Nominis</a></div>
 
     <div class="grid" id="forecast"></div>
   </div>
@@ -71,7 +74,14 @@
   document.documentElement.style.setProperty('--cols', COLS);
   document.documentElement.style.setProperty('--scale', SCALE.toString());
 
-  /* ===== Météo ===== */
+  /* ===== Proxys anti-CORS (partagés) ===== */
+  const PROXIES = [
+    u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u) + "&t=" + Date.now(),
+    u => "https://cors.isomorphic-git.org/" + u,
+    u => "https://thingproxy.freeboard.io/fetch/" + u
+  ];
+
+  /* ===== Météo (Open-Meteo) ===== */
   const api = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=3&timezone=auto`;
   const WMO = {0:"Ciel clair",1:"Peu nuageux",2:"Partiellement nuageux",3:"Couvert",45:"Brouillard",48:"Brouillard givrant",
     51:"Bruine légère",53:"Bruine",55:"Bruine forte",56:"Bruine verglaçante légère",57:"Bruine verglaçante forte",
@@ -105,7 +115,7 @@
     }
   }
   loadMeteo();
-  setInterval(loadMeteo, 5 * 60 * 1000); // toutes les 5 min
+  setInterval(loadMeteo, 5 * 60 * 1000); // 5 min
 
   /* ===== Horloge (Europe/Paris) ===== */
   function updateClock(){
@@ -118,27 +128,29 @@
   updateClock();
   setInterval(updateClock, 30 * 1000);
 
-  /* ===== Proxys anti-CORS (partagés fête du jour + actus) ===== */
-  const PROXIES = [
-    u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u) + "&t=" + Date.now(),
-    u => "https://cors.isomorphic-git.org/" + u,
-    u => "https://thingproxy.freeboard.io/fetch/" + u
-  ];
-
-  /* ===== Fête du jour (France) ===== */
+  /* ===== Fête du jour (priorité Nominis, fallback Abalin) ===== */
   async function loadFete(){
     const now = new Date();
-    const month = String(now.getMonth()+1).padStart(2,'0');
-    const day   = String(now.getDate()).padStart(2,'0');
+    const m = String(now.getMonth()+1).padStart(2,'0');
+    const d = String(now.getDate()).padStart(2,'0');
 
-    const ENDPOINTS = [
-      `https://nameday.abalin.net/api/V1/today?country=fr`,
-      `https://nameday.abalin.net/api/V1/getdate?country=fr&month=${month}&day=${day}`,
-      `https://api.abalin.net/today?country=fr`,
-      `https://api.abalin.net/namedays?country=fr&month=${month}&day=${day}`
+    const nominisURLs = [
+      `https://nominis.cef.fr/json/nominis.php?mois=${m}&jour=${d}`,
+      `https://nominis.cef.fr/json/saintdujour.php?mois=${m}&jour=${d}`
+    ];
+    const abalinURLs = [
+      `https://nameday.abalin.net/api/V1/getdate?country=fr&month=${m}&day=${d}`,
+      `https://api.abalin.net/namedays?country=fr&month=${m}&day=${d}`
     ];
 
-    const pickNames = (j) => {
+    const pickFromNominis = (j) => {
+      if (Array.isArray(j?.data)) {
+        const names = j.data.map(x => x?.nom || x?.name || "").filter(Boolean);
+        if (names.length) return names.join(", ");
+      }
+      return j?.saint || j?.data?.saint || null;
+    };
+    const pickFromAbalin = (j) => {
       if (Array.isArray(j?.data) && j.data[0]?.namedays?.fr) return j.data[0].namedays.fr;
       if (j?.data?.namedays?.fr) return j.data.namedays.fr;
       if (j?.data?.fr) return j.data.fr;
@@ -147,34 +159,35 @@
       return null;
     };
 
-    let names = null, lastErr = null;
-
-    for (const url of ENDPOINTS){
-      for (const wrap of PROXIES){
-        try{
-          const res = await fetch(wrap(url), { cache: "no-store" });
-          if (!res.ok) continue;
-          const json = await res.json();
-          const n = pickNames(json);
-          if (n){
-            names = n.split(/[,;/]/).map(s=>s.trim()).filter(Boolean);
-            names = [...new Set(names)].join(', ');
-            break;
-          }
-        }catch(e){ lastErr = e; }
+    async function tryList(urls, picker){
+      for (const url of urls){
+        for (const wrap of PROXIES){
+          try{
+            const res = await fetch(wrap(url), {cache:"no-store"});
+            if (!res.ok) continue;
+            const json = await res.json();
+            const raw = picker(json);
+            if (raw){
+              let arr = raw.split(/[,;/]|(?:\set\s)/i).map(s=>s.trim()).filter(Boolean);
+              arr = [...new Set(arr)];
+              return arr.join(", ");
+            }
+          }catch{} // on tente proxy suivant
+        }
       }
-      if (names) break;
+      return null;
     }
 
+    let names = await tryList(nominisURLs, pickFromNominis);
+    if (!names) names = await tryList(abalinURLs, pickFromAbalin);
+
     const el = document.getElementById('fete');
-    if (!el) return;
     el.textContent = names ? `Fête du jour : ${names}` : `Fête du jour : (indisp.)`;
-    if (!names && lastErr) console.warn('Fête du jour non chargée', lastErr);
   }
   loadFete();
-  setInterval(loadFete, 6 * 60 * 60 * 1000); // toutes les 6 h
+  setInterval(loadFete, 6 * 60 * 60 * 1000); // 6 h
 
-  /* ===== Actus locales ===== */
+  /* ===== Actus locales (Google News RSS via proxys) ===== */
   const FEEDS = [
     "https://news.google.com/rss/search?q=Ch%C3%A9raute%20OR%20Maul%C3%A9on-Licharre%20OR%20Soule&hl=fr&gl=FR&ceid=FR:fr",
     "https://news.google.com/rss/search?q=Pyr%C3%A9n%C3%A9es-Atlantiques&hl=fr&gl=FR&ceid=FR:fr",
@@ -210,7 +223,7 @@
     }
   }
   loadNews();
-  setInterval(loadNews, 5 * 60 * 1000); // toutes les 5 min
+  setInterval(loadNews, 5 * 60 * 1000); // 5 min
 
   /* ===== Hard reload de sécurité (10 min) ===== */
   setTimeout(()=>location.reload(), 10 * 60 * 1000);
